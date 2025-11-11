@@ -6,6 +6,7 @@ from django.db.models.functions import Coalesce
 # Third party modules
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 
 from plane.app.permissions import WorkspaceEntityPermission, allow_permission, ROLE
 
@@ -17,7 +18,7 @@ from plane.app.serializers import (
     WorkSpaceMemberSerializer,
 )
 from plane.app.views.base import BaseAPIView
-from plane.db.models import Project, ProjectMember, WorkspaceMember, DraftIssue
+from plane.db.models import Project, ProjectMember, WorkspaceMember, DraftIssue, User, Workspace
 from plane.utils.cache import invalidate_cache
 
 from .. import BaseViewSet
@@ -190,6 +191,210 @@ class WorkspaceMemberUserViewsEndpoint(BaseAPIView):
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+class WorkspaceAddMemberEndpoint(BaseAPIView):
+    """
+    Endpoint to add member directly to workspace using API key authentication
+    Bypass normal invitation flow
+    """
+    permission_classes = [AllowAny]  # Allow API key auth without user context
+    
+    def post(self, request, slug):
+        """
+        Add a user directly to workspace without invitation
+        
+        Request body:
+        - user_id or email (required) - User ID or email to add
+        - role (optional) - Member role (default: 15 - Member)
+          Roles: 5=Guest, 10=Viewer, 15=Member, 20=Admin
+        """
+        # Get workspace
+        try:
+            workspace = Workspace.objects.get(slug=slug)
+        except Workspace.DoesNotExist:
+            return Response(
+                {"error": "Workspace not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get user by ID or email
+        user_id = request.data.get('user_id')
+        email = request.data.get('email')
+        role = request.data.get('role', 15)  # Default role is Member (15)
+        
+        if not user_id and not email:
+            return Response(
+                {"error": "Either user_id or email is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find user
+        try:
+            if user_id:
+                user = User.objects.get(id=user_id, is_active=True)
+            else:
+                user = User.objects.get(email=email.lower().strip(), is_active=True)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if user is already a member
+        existing_member = WorkspaceMember.objects.filter(
+            workspace=workspace, 
+            member=user
+        ).first()
+        
+        if existing_member and existing_member.is_active:
+            return Response(
+                {
+                    "error": "User is already a member of this workspace",
+                    "member": {
+                        "id": str(existing_member.id),
+                        "role": existing_member.role,
+                        "email": user.email
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate role
+        valid_roles = [5, 10, 15, 20]  # Guest, Viewer, Member, Admin
+        if role not in valid_roles:
+            return Response(
+                {"error": f"Invalid role. Valid roles are: {valid_roles}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Reactivate or create workspace member
+        if existing_member:
+            # Reactivate existing member
+            existing_member.is_active = True
+            existing_member.role = role
+            existing_member.save()
+            workspace_member = existing_member
+        else:
+            # Create new workspace member
+            workspace_member = WorkspaceMember.objects.create(
+                workspace=workspace,
+                member=user,
+                role=role,
+                is_active=True
+            )
+        
+        serializer = WorkspaceMemberAdminSerializer(workspace_member)
+        return Response(
+            {
+                "message": "User added to workspace successfully",
+                "member": serializer.data
+            }, 
+            status=status.HTTP_201_CREATED
+        )
+
+class WorkspaceRemoveMemberEndpoint(BaseAPIView):
+    """
+    Remove member from workspace using API key authentication
+    """
+    permission_classes = [AllowAny]
+    
+    def delete(self, request, slug, member_id):
+        """
+        Remove a member from workspace
+        
+        URL params:
+        - member_id: UUID of the USER (not WorkspaceMember) to remove
+        
+        Or use query param:
+        - ?email=user@example.com
+        """
+        try:
+            workspace = Workspace.objects.get(slug=slug)
+        except Workspace.DoesNotExist:
+            return Response(
+                {"error": "Workspace not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get user by ID or email
+        email = request.query_params.get('email')
+        
+        try:
+            if email:
+                user = User.objects.get(email=email.lower().strip(), is_active=True)
+            else:
+                # member_id is the User ID
+                user = User.objects.get(id=member_id, is_active=True)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get workspace member by user
+        try:
+            workspace_member = WorkspaceMember.objects.get(
+                member=user,  # ← Tìm theo User object
+                workspace=workspace,
+                member__is_bot=False,
+                is_active=True
+            )
+        except WorkspaceMember.DoesNotExist:
+            return Response(
+                {"error": "User is not a member of this workspace"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if user is the only admin
+        if workspace_member.role == 20:
+            admin_count = WorkspaceMember.objects.filter(
+                workspace=workspace,
+                role=20,
+                is_active=True
+            ).count()
+            
+            if admin_count <= 1:
+                return Response(
+                    {"error": "Cannot remove the only admin of the workspace"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Check if user is the only admin in some projects
+        if (
+            Project.objects.annotate(
+                total_members=Count("project_projectmember"),
+                member_with_role=Count(
+                    "project_projectmember",
+                    filter=Q(
+                        project_projectmember__member_id=user.id,  # ← Dùng user.id
+                        project_projectmember__role=20,
+                    ),
+                ),
+            )
+            .filter(total_members=1, member_with_role=1, workspace=workspace)
+            .exists()
+        ):
+            return Response(
+                {
+                    "error": "User is the only admin in some projects. Promote another user to admin first."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Deactivate from all projects in workspace
+        ProjectMember.objects.filter(
+            workspace=workspace,
+            member_id=user.id,  # ← Dùng user.id
+            is_active=True
+        ).update(is_active=False, updated_at=timezone.now())
+        
+        # Deactivate from workspace
+        workspace_member.is_active = False
+        workspace_member.save()
+        
+        return Response(
+            {"message": "Member removed from workspace successfully"},
+            status=status.HTTP_200_OK
+        )
 
 class WorkspaceMemberUserEndpoint(BaseAPIView):
     use_read_replica = True
@@ -241,3 +446,212 @@ class WorkspaceProjectMemberEndpoint(BaseAPIView):
             project_members_dict[str(project_id)].append(project_member)
 
         return Response(project_members_dict, status=status.HTTP_200_OK)
+
+class ProjectAddMemberEndpoint(BaseAPIView):
+    """
+    Endpoint to add member directly to project using API key authentication
+    Bypass normal invitation flow
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request, slug, project_id):
+        """
+        Add a user directly to project without invitation
+        
+        Request body:
+        - user_id or email (required) - User ID or email to add
+        - role (optional) - Member role (default: 15 - Member)
+          Roles: 5=Guest, 10=Viewer, 15=Member, 20=Admin
+        """
+        # Get workspace and project
+        try:
+            workspace = Workspace.objects.get(slug=slug)
+            project = Project.objects.get(id=project_id, workspace=workspace)
+        except Workspace.DoesNotExist:
+            return Response(
+                {"error": "Workspace not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Project.DoesNotExist:
+            return Response(
+                {"error": "Project not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get user by ID or email
+        user_id = request.data.get('user_id')
+        email = request.data.get('email')
+        role = request.data.get('role', 15)
+        
+        if not user_id and not email:
+            return Response(
+                {"error": "Either user_id or email is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find user
+        try:
+            if user_id:
+                user = User.objects.get(id=user_id, is_active=True)
+            else:
+                user = User.objects.get(email=email.lower().strip(), is_active=True)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if user is a workspace member
+        workspace_member = WorkspaceMember.objects.filter(
+            workspace=workspace,
+            member=user,
+            is_active=True
+        ).first()
+        
+        if not workspace_member:
+            return Response(
+                {"error": "User is not a member of this workspace. Add them to workspace first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if already a project member
+        existing_member = ProjectMember.objects.filter(
+            project=project,
+            member=user
+        ).first()
+        
+        if existing_member and existing_member.is_active:
+            return Response(
+                {
+                    "error": "User is already a member of this project",
+                    "member": {
+                        "id": str(existing_member.id),
+                        "role": existing_member.role,
+                        "email": user.email
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate role
+        valid_roles = [5, 10, 15, 20]
+        if role not in valid_roles:
+            return Response(
+                {"error": f"Invalid role. Valid roles are: {valid_roles}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Workspace guest can only be project guest
+        if workspace_member.role == 5 and role > 5:
+            return Response(
+                {"error": "Workspace guest can only have guest role in projects"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Reactivate or create project member
+        if existing_member:
+            existing_member.is_active = True
+            existing_member.role = role
+            existing_member.save()
+            project_member = existing_member
+        else:
+            project_member = ProjectMember.objects.create(
+                project=project,
+                member=user,
+                workspace=workspace,
+                role=role,
+                is_active=True
+            )
+        
+        from plane.app.serializers import ProjectMemberAdminSerializer
+        serializer = ProjectMemberAdminSerializer(project_member)
+        
+        return Response(
+            {
+                "message": "User added to project successfully",
+                "member": serializer.data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+class ProjectRemoveMemberEndpoint(BaseAPIView):
+    """
+    Remove member from project using API key authentication
+    """
+    permission_classes = [AllowAny]
+    
+    def delete(self, request, slug, project_id, member_id):
+        """
+        Remove a member from project
+        
+        URL params:
+        - member_id: UUID of the USER (not ProjectMember) to remove
+        
+        Or use query param:
+        - ?email=user@example.com
+        """
+        try:
+            workspace = Workspace.objects.get(slug=slug)
+            project = Project.objects.get(id=project_id, workspace=workspace)
+        except Workspace.DoesNotExist:
+            return Response(
+                {"error": "Workspace not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Project.DoesNotExist:
+            return Response(
+                {"error": "Project not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get user by ID or email (from query params)
+        email = request.query_params.get('email')
+        
+        # Find user
+        try:
+            if email:
+                user = User.objects.get(email=email.lower().strip(), is_active=True)
+            else:
+                # member_id is the User ID
+                user = User.objects.get(id=member_id, is_active=True)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get project member by user
+        try:
+            project_member = ProjectMember.objects.get(
+                member=user,  # ← Tìm theo User object
+                project=project,
+                is_active=True
+            )
+        except ProjectMember.DoesNotExist:
+            return Response(
+                {"error": "User is not a member of this project"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if user is the only admin
+        if project_member.role == 20:
+            admin_count = ProjectMember.objects.filter(
+                project=project,
+                role=20,
+                is_active=True
+            ).count()
+            
+            if admin_count <= 1:
+                return Response(
+                    {"error": "Cannot remove the only admin of the project"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Deactivate project member
+        project_member.is_active = False
+        project_member.save()
+        
+        return Response(
+            {"message": "Member removed from project successfully"},
+            status=status.HTTP_200_OK
+        )

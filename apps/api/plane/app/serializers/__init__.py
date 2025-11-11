@@ -9,6 +9,7 @@ from .user import (
     UserMeSettingsSerializer,
     ProfileSerializer,
     AccountSerializer,
+    UserCreateSerializer
 )
 from .workspace import (
     WorkSpaceSerializer,

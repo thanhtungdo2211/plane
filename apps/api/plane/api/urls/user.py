@@ -7,5 +7,5 @@ urlpatterns = [
         "users/me/",
         UserEndpoint.as_view(http_method_names=["get"]),
         name="users",
-    ),
+    )
 ]

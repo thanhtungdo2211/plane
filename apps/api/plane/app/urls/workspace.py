@@ -32,6 +32,10 @@ from plane.app.views import (
     WorkspaceHomePreferenceViewSet,
     WorkspaceStickyViewSet,
     WorkspaceUserPreferenceViewSet,
+    WorkspaceAddMemberEndpoint,
+    ProjectAddMemberEndpoint,
+    WorkspaceRemoveMemberEndpoint,
+    ProjectRemoveMemberEndpoint
 )
 
 
@@ -79,12 +83,50 @@ urlpatterns = [
         WorkspaceJoinEndpoint.as_view(),
         name="workspace-join",
     ),
+##################
     # user join workspace
+    # path(
+    #     "workspaces/<str:slug>/members/",
+    #     WorkSpaceMemberViewSet.as_view({"get": "list"}),
+    #     name="workspace-member",
+    # ),
+    # Direct add member endpoint (for API key auth)
+    path(
+        "workspaces/<str:slug>/add-member/",
+        WorkspaceAddMemberEndpoint.as_view(),
+        name="workspace-add-member",
+    ),
+    # Remove member from workspace (API key)
+    path(
+        "workspaces/<str:slug>/remove-member/<uuid:member_id>/",
+        WorkspaceRemoveMemberEndpoint.as_view(),
+        name="workspace-remove-member",
+    ),
+    # Normal member endpoints
     path(
         "workspaces/<str:slug>/members/",
-        WorkSpaceMemberViewSet.as_view({"get": "list"}),
-        name="workspace-member",
+        WorkSpaceMemberViewSet.as_view(
+            {
+                "get": "list",
+                "post": "create",  # Keep this commented if not using
+            }
+        ),
+        name="workspace-members",
     ),
+
+    # API key endpoint - add member directly to project
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/add-member/",
+        ProjectAddMemberEndpoint.as_view(),
+        name="project-add-member",
+    ),
+    # Remove member from project (API key)
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/remove-member/<uuid:member_id>/",
+        ProjectRemoveMemberEndpoint.as_view(),
+        name="project-remove-member",
+    ),
+###############
     path(
         "workspaces/<str:slug>/project-members/",
         WorkspaceProjectMemberEndpoint.as_view(),

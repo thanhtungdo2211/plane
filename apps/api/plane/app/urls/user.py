@@ -12,6 +12,7 @@ from plane.app.views import (
     UserIssueCompletedGraphEndpoint,
     UserWorkspaceDashboardEndpoint,
     UserSessionEndpoint,
+    UserCreateEndpoint,
     ## End User
     ## Workspaces
     UserWorkSpacesEndpoint,
@@ -23,6 +24,11 @@ urlpatterns = [
         "users/me/",
         UserEndpoint.as_view({"get": "retrieve", "patch": "partial_update", "delete": "deactivate"}),
         name="users",
+    ),
+    path(
+        "users/",
+        UserCreateEndpoint.as_view(http_method_names=["post"]),
+        name="user-create",
     ),
     path("users/session/", UserSessionEndpoint.as_view(), name="user-session"),
     path(

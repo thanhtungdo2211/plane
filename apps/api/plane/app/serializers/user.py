@@ -164,6 +164,30 @@ class UserAdminLiteSerializer(BaseSerializer):
         ]
         read_only_fields = ["id", "is_bot"]
 
+class UserCreateSerializer(BaseSerializer):
+    """Serializer for creating new users"""
+    
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "username",
+            "first_name",
+            "last_name",
+            "avatar",
+        ]
+        read_only_fields = ["id"]
+        extra_kwargs = {
+            'email': {'required': True},
+            'username': {'required': True}
+        }
+
+    def validate_email(self, value):
+        """Ensure email is lowercase and stripped"""
+        if value:
+            return value.lower().strip()
+        return value
 
 class ChangePasswordSerializer(serializers.Serializer):
     model = User

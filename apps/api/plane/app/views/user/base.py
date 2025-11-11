@@ -19,6 +19,7 @@ from plane.app.serializers import (
     UserMeSerializer,
     UserMeSettingsSerializer,
     UserSerializer,
+    UserCreateSerializer
 )
 from plane.app.views.base import BaseAPIView, BaseViewSet
 from plane.db.models import (
@@ -167,7 +168,6 @@ class UserEndpoint(BaseViewSet):
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
 class UserSessionEndpoint(BaseAPIView):
     permission_classes = [AllowAny]
 
@@ -243,4 +243,77 @@ class ProfileEndpoint(BaseAPIView):
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UserCreateEndpoint(BaseAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = UserSerializer
+
+    def post(self, request):
+        """
+        Create a new user account
+        
+        Request body should include:
+        - email (required)
+        - username (required)
+        - password (optional, will be auto-generated if not provided)
+        - first_name (optional)
+        - last_name (optional)
+        """
+        # Validate required fields
+        email = request.data.get('email')
+        username = request.data.get('username')
+        
+        if not email:
+            return Response(
+                {"email": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not username:
+            return Response(
+                {"username": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = UserCreateSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            # Create the user
+            user = serializer.save()
+            
+            # Set password if provided, otherwise auto-generate
+            password = request.data.get('password')
+            if password:
+                user.set_password(password)
+                user.is_password_autoset = False
+            else:
+                # Auto-generate password
+                user.set_password(uuid.uuid4().hex)
+                user.is_password_autoset = True
+            
+            user.save()
+            
+            # Create associated profile with default values
+            Profile.objects.get_or_create(
+                user=user,
+                defaults={
+                    'is_onboarded': False,
+                    'is_tour_completed': False,
+                    'onboarding_step': {
+                        "workspace_join": False,
+                        "profile_complete": False,
+                        "workspace_create": False,
+                        "workspace_invite": False,
+                    }
+                }
+            )
+            
+            # Return created user data
+            response_serializer = UserMeSerializer(user)
+            return Response(
+                response_serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
