@@ -7,8 +7,8 @@ url = "http://localhost:8000/api/users/"
 
 # User data
 data = {
-    "email": "newuser2@example.com",
-    "username": "newuser2",
+    "email": "newuser10@example.com",
+    "username": "newuser10",
     "first_name": "John",
     "last_name": "Doe",
     "password": "SecurePassword123"
