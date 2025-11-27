@@ -16,6 +16,10 @@ from plane.app.views import (
     ## End User
     ## Workspaces
     UserWorkSpacesEndpoint,
+    # Zalo metadata
+    UserWithZaloMetadataEndpoint,
+    ZaloUserMetadataEndpoint,
+    ZaloUserByZaloIdEndpoint,
 )
 
 urlpatterns = [
@@ -73,5 +77,37 @@ urlpatterns = [
         UserWorkspaceDashboardEndpoint.as_view(),
         name="user-workspace-dashboard",
     ),
+    
+    # Get user with zalo metadata
+    path(
+        "users/with-zalo/",
+        UserWithZaloMetadataEndpoint.as_view(),
+        name="user-with-zalo",
+    ),
+    path(
+        "users/<uuid:user_id>/with-zalo/",
+        UserWithZaloMetadataEndpoint.as_view(),
+        name="user-with-zalo-by-id",
+    ),
+    path(
+        "users/email/<str:email>/with-zalo/",
+        UserWithZaloMetadataEndpoint.as_view(),
+        name="user-with-zalo-by-email",
+    ),
+    
+    # Zalo metadata endpoints for authenticated user
+    path(
+        "users/me/zalo-metadata/",
+        ZaloUserMetadataEndpoint.as_view(),
+        name="zalo-user-metadata",
+    ),
+    
+    # Get user by Zalo ID
+    path(
+        "zalo-users/<str:zalo_user_id>/",
+        ZaloUserByZaloIdEndpoint.as_view(),
+        name="zalo-user-by-id",
+    ),
+    
     ## End User Graph
 ]

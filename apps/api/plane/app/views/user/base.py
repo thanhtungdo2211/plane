@@ -19,7 +19,8 @@ from plane.app.serializers import (
     UserMeSerializer,
     UserMeSettingsSerializer,
     UserSerializer,
-    UserCreateSerializer
+    UserCreateSerializer,
+    ZaloUserMetadataSerializer
 )
 from plane.app.views.base import BaseAPIView, BaseViewSet
 from plane.db.models import (
@@ -31,6 +32,7 @@ from plane.db.models import (
     WorkspaceMember,
     WorkspaceMemberInvite,
     Session,
+    ZaloUserMetadata
 )
 from plane.license.models import Instance, InstanceAdmin
 from plane.utils.paginator import BasePaginator
@@ -40,7 +42,6 @@ from plane.utils.host import base_host
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_control
 from django.views.decorators.vary import vary_on_cookie
-
 
 class UserEndpoint(BaseViewSet):
     serializer_class = UserSerializer
@@ -259,6 +260,7 @@ class UserCreateEndpoint(BaseAPIView):
         - password (optional, will be auto-generated if not provided)
         - first_name (optional)
         - last_name (optional)
+        - zalo_metadata (optional) - object with zalo user fields
         """
         # Validate required fields
         email = request.data.get('email')
@@ -309,6 +311,22 @@ class UserCreateEndpoint(BaseAPIView):
                 }
             )
             
+            # Create Zalo metadata if provided
+            zalo_metadata = request.data.get('zalo_metadata', {})
+            if zalo_metadata:
+                ZaloUserMetadata.objects.create(
+                    user=user,
+                    name=zalo_metadata.get('name'),
+                    phone=zalo_metadata.get('phone'),
+                    cv=zalo_metadata.get('cv'),
+                    cv_data=zalo_metadata.get('cv_data'),
+                    zalo_user_id=zalo_metadata.get('zalo_user_id'),
+                    description=zalo_metadata.get('description'),
+                    additional_info=zalo_metadata.get('additional_info', {}),
+                    skills=zalo_metadata.get('skills', []),
+                    role=zalo_metadata.get('role'),
+                )
+            
             # Return created user data
             response_serializer = UserMeSerializer(user)
             return Response(
@@ -317,3 +335,119 @@ class UserCreateEndpoint(BaseAPIView):
             )
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UserWithZaloMetadataEndpoint(BaseAPIView):
+    """Get user information with Zalo metadata"""
+    permission_classes = [AllowAny]  # Adjust based on your security needs
+    
+    def get(self, request, user_id=None, email=None):
+        """
+        Get user by ID or email with their zalo_metadata
+        Query params:
+        - id: user UUID
+        - email: user email
+        """
+        try:
+            # Get user by id or email from path or query params
+            user_id = user_id or request.query_params.get('id')
+            email = email or request.query_params.get('email')
+            
+            if user_id:
+                user = User.objects.get(id=user_id)
+            elif email:
+                user = User.objects.get(email=email.lower().strip())
+            else:
+                return Response(
+                    {"error": "Please provide either user id or email"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Serialize user data
+            user_data = UserMeSerializer(user).data
+            
+            # Try to get zalo metadata
+            try:
+                zalo_metadata = ZaloUserMetadata.objects.get(user=user)
+                user_data['zalo_metadata'] = ZaloUserMetadataSerializer(zalo_metadata).data
+            except ZaloUserMetadata.DoesNotExist:
+                user_data['zalo_metadata'] = None
+            
+            return Response(user_data, status=status.HTTP_200_OK)
+            
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class ZaloUserMetadataEndpoint(BaseAPIView):
+    """Get, Update, or Delete Zalo metadata for authenticated user"""
+    
+    def get(self, request):
+        """Get Zalo metadata for current user"""
+        try:
+            zalo_metadata = ZaloUserMetadata.objects.get(user=request.user)
+            serializer = ZaloUserMetadataSerializer(zalo_metadata)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except ZaloUserMetadata.DoesNotExist:
+            return Response(
+                {"error": "Zalo metadata not found for this user"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    def patch(self, request):
+        """Update Zalo metadata for current user"""
+        try:
+            zalo_metadata = ZaloUserMetadata.objects.get(user=request.user)
+            serializer = ZaloUserMetadataSerializer(
+                zalo_metadata, 
+                data=request.data, 
+                partial=True
+            )
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except ZaloUserMetadata.DoesNotExist:
+            # Create if doesn't exist
+            serializer = ZaloUserMetadataSerializer(data=request.data)
+            if serializer.is_valid():
+                serializer.save(user=request.user)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request):
+        """Delete Zalo metadata for current user"""
+        try:
+            zalo_metadata = ZaloUserMetadata.objects.get(user=request.user)
+            zalo_metadata.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except ZaloUserMetadata.DoesNotExist:
+            return Response(
+                {"error": "Zalo metadata not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class ZaloUserByZaloIdEndpoint(BaseAPIView):
+    """Get user info by Zalo User ID"""
+    permission_classes = [AllowAny]
+    
+    def get(self, request, zalo_user_id):
+        """Get user info by Zalo User ID"""
+        try:
+            zalo_metadata = ZaloUserMetadata.objects.select_related('user').get(
+                zalo_user_id=zalo_user_id
+            )
+            
+            # Combine user and zalo data
+            user_data = UserMeSerializer(zalo_metadata.user).data
+            user_data['zalo_metadata'] = ZaloUserMetadataSerializer(zalo_metadata).data
+            
+            return Response(user_data, status=status.HTTP_200_OK)
+        except ZaloUserMetadata.DoesNotExist:
+            return Response(
+                {"error": "User with this Zalo ID not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )

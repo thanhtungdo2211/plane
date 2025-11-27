@@ -129,3 +129,5 @@ from .draft import (
     DraftIssueSerializer,
     DraftIssueDetailSerializer,
 )
+
+from .zalo_user import ZaloUserMetadataSerializer

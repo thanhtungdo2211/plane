@@ -25,9 +25,11 @@ from .user.base import (
     UpdateUserOnBoardedEndpoint,
     UpdateUserTourCompletedEndpoint,
     UserActivityEndpoint,
-    UserCreateEndpoint
+    UserCreateEndpoint,
+    UserWithZaloMetadataEndpoint,
+    ZaloUserMetadataEndpoint,
+    ZaloUserByZaloIdEndpoint,
 )
-
 
 from .base import BaseAPIView, BaseViewSet
 

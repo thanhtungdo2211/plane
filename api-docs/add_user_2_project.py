@@ -8,7 +8,7 @@ url = f"http://localhost:8000/api/workspaces/{workspace_slug}/projects/{project_
 
 # Member data
 data = {
-    "email": "tung.0982548086@gmail.com",
+    "email": "testuser2@example.com",
     "role": 15
 }
 

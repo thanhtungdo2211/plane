@@ -2,19 +2,19 @@ import requests
 import json
 
 # API endpoint
-workspace_slug = "workspacetdt"
+workspace_slug = "thang"
 url = f"http://localhost:8000/api/workspaces/{workspace_slug}/add-member/"
 
 # Member data
 data = {
-    "email": "newuser10@example.com",
-    "role": 20
+    "email": "testuser2@example.com",
+    "role": 15
 }
 
 # Headers with API key
 headers = {
     "Content-Type": "application/json",
-    "x-api-key": "plane_api_55017c632ac040c993f6ab73e74eb736"
+    "x-api-key": "plane_api_d958d52c6c0845cb94b8dadd7fef425e"
 }
 
 # Make POST request
