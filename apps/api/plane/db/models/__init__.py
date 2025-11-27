@@ -87,3 +87,5 @@ from .sticky import Sticky
 from .description import Description, DescriptionVersion
 
 from .zalo_user import ZaloUserMetadata
+
+from .issue_daily_progress import IssueDailyProgress

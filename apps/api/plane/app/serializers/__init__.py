@@ -131,3 +131,8 @@ from .draft import (
 )
 
 from .zalo_user import ZaloUserMetadataSerializer
+
+from .issue_daily_progress import (
+    IssueDailyProgressSerializer,
+    IssueDailyProgressDetailSerializer,
+)

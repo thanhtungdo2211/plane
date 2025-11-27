@@ -240,3 +240,8 @@ from .notification.base import MarkAllReadNotificationViewSet
 from .user.base import AccountEndpoint, ProfileEndpoint, UserSessionEndpoint
 
 from .timezone.base import TimezoneEndpoint
+
+from .issue.daily_progress import (
+    IssueDailyProgressEndpoint,
+    IssueDailyProgressDetailEndpoint,
+)

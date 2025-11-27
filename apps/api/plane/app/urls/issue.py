@@ -27,6 +27,8 @@ from plane.app.views import (
     WorkItemDescriptionVersionEndpoint,
     IssueMetaEndpoint,
     IssueDetailIdentifierEndpoint,
+    IssueDailyProgressEndpoint,
+    IssueDailyProgressDetailEndpoint,
 )
 
 urlpatterns = [
@@ -278,5 +280,16 @@ urlpatterns = [
         "workspaces/<str:slug>/work-items/<str:project_identifier>-<str:issue_identifier>/",
         IssueDetailIdentifierEndpoint.as_view(),
         name="issue-detail-identifier",
+    ),
+    # Daily Progress endpoints
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/daily-progress/",
+        IssueDailyProgressEndpoint.as_view(),
+        name="issue-daily-progress",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/daily-progress/<uuid:progress_id>/",
+        IssueDailyProgressDetailEndpoint.as_view(),
+        name="issue-daily-progress-detail",
     ),
 ]
