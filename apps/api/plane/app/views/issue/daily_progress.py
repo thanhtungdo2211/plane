@@ -239,7 +239,7 @@ class IssueDailyProgressDetailEndpoint(BaseAPIView):
     """
     API endpoint to get/update/delete a specific daily progress entry
     """
-    # permission_classes = [AllowAny]
+    permission_classes = [AllowAny]
     # @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id, issue_id, progress_id):
         """
