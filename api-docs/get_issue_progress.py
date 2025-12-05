@@ -15,8 +15,7 @@ headers = {
 print("=== Test 1: Get all daily progress for an issue ===")
 
 response = requests.get(url, headers=headers)
-print(response.json())
-exit()
+
 try:
     response = requests.get(url, headers=headers)
     
